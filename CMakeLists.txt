@@ -5,6 +5,10 @@ project(ExampleModule LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Options to control produced filenames and Windows exports
+option(REMOVE_LIB_PREFIX_ON_UNIX "Remove the 'lib' prefix on Unix-like systems (produces ExampleModule.so instead of libExampleModule.so)" ON)
+option(WINDOWS_EXPORT_ALL_SYMBOLS_OPTION "When building on Windows, export all symbols automatically (convenient for DLLs)" ON)
+
 # The module sources: collect everything under src/ so adding/removing files
 # there doesn't require editing this CMakeLists.
 file(GLOB_RECURSE MODULE_SOURCES CONFIGURE_DEPENDS
@@ -30,9 +34,8 @@ target_include_directories(ExampleModule PRIVATE
 
 # By default CMake will produce libExampleModule.so on Unix. Some engines
 # expect the module file to be named without the lib prefix (e.g. "ExampleModule.so").
-# We remove the prefix on Unix to match that convention. If you want the
-# traditional lib prefix instead, remove the PREFIX property below.
-if(UNIX)
+# If the option REMOVE_LIB_PREFIX_ON_UNIX is ON, remove the prefix on Unix to match that convention.
+if(UNIX AND REMOVE_LIB_PREFIX_ON_UNIX)
     set_target_properties(ExampleModule PROPERTIES PREFIX "")
 endif()
 
@@ -41,8 +44,8 @@ endif()
 set_target_properties(ExampleModule PROPERTIES OUTPUT_NAME "ExampleModule")
 
 # Optional: export all symbols on Windows to avoid needing an explicit
-# DEF file when building a DLL. Not required on Linux.
-if(WIN32)
+# DEF file when building a DLL. Controlled by WINDOWS_EXPORT_ALL_SYMBOLS_OPTION.
+if(WIN32 AND WINDOWS_EXPORT_ALL_SYMBOLS_OPTION)
     set_target_properties(ExampleModule PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 endif()
 
@@ -55,5 +58,5 @@ endif()
 #   cmake ..
 #   cmake --build . --config Release
 #
-# On Linux this will produce `ExampleModule.so` (no lib prefix). On Windows
+# On Linux this will produce `ExampleModule.so` (no lib prefix if enabled). On Windows
 # the produced file will be `ExampleModule.dll`.
