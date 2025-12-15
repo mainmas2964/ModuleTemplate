@@ -21,7 +21,7 @@ class ModuleAPI {
     
 public:
     ModuleAPI(FractalAPI_Gateway* gateway) : gw(gateway) {}
-    
+     
     template<typename T>
     bool registerComponent(const char* name, size_t maxEntities = 10000) {
         std::cout << "[ModuleAPI] Registering component: " << name << "\n";
