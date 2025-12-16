@@ -24,7 +24,7 @@ endif()
 
 add_library(ExampleModule SHARED ${MODULE_SOURCES})
 
-# Make sure the module can find FractalAPI.hpp and other headers. Add the
+# Make sure the module can find FractalCORE.hpp and other headers. Add the
 # repository header folder and src so local includes work.
 target_include_directories(ExampleModule PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}

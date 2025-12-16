@@ -4,6 +4,7 @@
 #include <functional>
 #include <chrono>
 #include <string>
+#include <cstring>
 struct Entity
 {
     uint32_t id;
@@ -40,18 +41,43 @@ enum class TriggerType {
     TimeInterval,
     TickInterval
 };
+struct EventData {
+    void* ptr;
+    size_t size;
+};
+struct ComponentData {
 
-template<typename T>
+    void* data = nullptr;
+    size_t elementSize = 0;
+    size_t capacity = 0;
+    std::vector<uint32_t> dense;
+    std::vector<uint32_t> sparse;
+
+    ComponentData(size_t elemSize, size_t cap);
+
+    ~ComponentData();
+};
+
+using SystemCallback = std::function<void(float)>;
+
+struct System {
+    std::string name;
+    SystemCallback callback;
+    bool enabled = true;
+};
+
 struct SystemDesc {
-    std::function<void(Entity, T&)> callback;
-    std::string name = "Unnamed System";
-    SystemMode mode = SystemMode::Serial;
+    std::string systemName;
     TriggerType trigger = TriggerType::Always;
     float timeInterval = 0.0f;
     size_t tickInterval = 0;
-    size_t chunkSize = 64;
+    bool enabled = true;
+    float timeAcc = 0.0f;
+    size_t tickAcc = 0;
 };
 
+
+class Clock;
 #pragma once
 class Module {
 public:
