@@ -27,6 +27,8 @@ struct FractalCORE_Gateway {
     void* (*getComponent)(void*, Entity, const std::string&);
     bool (*hasComponent)(void*, Entity, const std::string&);
     ComponentData* (*getComponentData)(void*, const std::string&);
+    void (*registerGroup)(void*,const std::vector<std::string>&);
+    
 
     // --- ECS: Systems ---
     // Registers a system. 
@@ -40,7 +42,11 @@ struct FractalCORE_Gateway {
     // Parallel iteration wrapper
     // Takes a std::function because ECS::updateParallel requires it
     void (*updateParallel)(void* api, const std::string& name, void (*func)(Entity, void*, void*), void* userContext, size_t chunkSize);
-    
+    void (*updateParallelGroup)(void* api, 
+                                const std::vector<std::string>& components, 
+                                void (*func)(size_t, size_t, void*), 
+                                void* userContext, 
+                                size_t chunkSize);
     // --- Event Manager ---
     uint32_t (*registerEvent)(void*, const std::string&);
     void (*pushEvent)(void*, uint32_t, void*, size_t);
@@ -49,3 +55,4 @@ struct FractalCORE_Gateway {
     // Subscribe callback takes (eventID, EventData, userData)
     void (*subscribe)(void*, uint32_t, void (*)(uint32_t, const EventData&, void*), void*);
 };
+
