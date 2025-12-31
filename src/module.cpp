@@ -25,15 +25,12 @@ struct PlayerMoveEvent {
 void MovementSystemUpdate(Entity e, PositionComponent& pos, float dt) {
     // Simple movement: advance X based on dt
     pos.x += dt * 10.0f;
-    std::cout << "Entity " << e.id << " moved to (" << pos.x << ", " << pos.y << ") | DT: " << dt << std::endl;
 }
 
 // Event handler for PlayerMoveEvent
 void OnPlayerMove(const PlayerMoveEvent& eventData, void* userData) {
     ModuleAPI* api = static_cast<ModuleAPI*>(userData);
 
-    std::cout << "EVENT RECEIVED: Entity " << eventData.entity.id
-              << " moved to (" << eventData.newX << ", " << eventData.newY << ")" << std::endl;
 
     // Update the Position component via the module API if present
     PositionComponent* pos = api->getComponent<PositionComponent>(eventData.entity, "Position");
@@ -41,6 +38,15 @@ void OnPlayerMove(const PlayerMoveEvent& eventData, void* userData) {
         pos->x = eventData.newX;
         pos->y = eventData.newY;
     }
+}
+
+// Immediate update helper used for mass updates (no dt version)
+// This will be used with ModuleAPI::updateParallel which expects a
+// function pointer of signature void(Entity, T&).
+void ImmediateMove(Entity e, PositionComponent& pos) {
+    // simple deterministic update to verify updates occurred
+    pos.x += 1.0f;
+    pos.y += 0.5f;
 }
 
 // --- 3. Module entry points ---
@@ -76,14 +82,28 @@ extern "C" {
             );
             std::cout << "Subscribed to Event: PlayerMove" << std::endl;
 
-            // Create a test entity with a Position component
-            Entity player = moduleApi.createEntity();
-            moduleApi.attachComponent<PositionComponent>(player, "Position", {10.0f, 5.0f});
-            std::cout << "Created test Entity " << player.id << " with Position component." << std::endl;
+            // Create 10k entities with a Position component
+            const size_t COUNT = 10000;
+            std::cout << "Creating " << COUNT << " entities..." << std::endl;
+            for (size_t i = 0; i < COUNT; ++i) {
+                Entity e = moduleApi.createEntity();
+                PositionComponent pc;
+                pc.x = static_cast<float>(i);
+                pc.y = 0.0f;
+                moduleApi.attachComponent<PositionComponent>(e, "Position", pc);
+                if (((i + 1) % 1000) == 0) {
+                    std::cout << "Created " << (i + 1) << " entities." << std::endl;
+                }
+            }
 
-            // Emit a test PlayerMoveEvent (will immediately call OnPlayerMove)
-            PlayerMoveEvent testEvent = {player, 15.0f, 7.0f};
-            moduleApi.emitEvent<PlayerMoveEvent>("PlayerMove", testEvent);
+            std::cout << "All entities created. Running 5 immediate parallel update passes..." << std::endl;
+            // Run a few immediate parallel update passes to advance positions.
+            for (int pass = 0; pass < 5; ++pass) {
+                moduleApi.updateParallel<PositionComponent>("Position", ImmediateMove, 256);
+                std::cout << "Completed update pass " << (pass + 1) << "/5" << std::endl;
+            }
+
+            std::cout << "Mass creation and updates finished." << std::endl;
 
         } catch (const std::exception& e) {
             std::cerr << "Module Initialization Error: " << e.what() << std::endl;

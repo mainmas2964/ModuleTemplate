@@ -39,7 +39,7 @@ struct FractalCORE_Gateway {
     
     // Parallel iteration wrapper
     // Takes a std::function because ECS::updateParallel requires it
-    void (*updateParallel)(void*, const std::string&, std::function<void(Entity, void*)>, size_t);
+    void (*updateParallel)(void* api, const std::string& name, void (*func)(Entity, void*, void*), void* userContext, size_t chunkSize);
     
     // --- Event Manager ---
     uint32_t (*registerEvent)(void*, const std::string&);

@@ -99,71 +99,74 @@ public:
      * Logic: Defines a C-style callback that is called by Core. 
      * Inside that callback, it triggers `updateParallel` to iterate components.
      */
-    template<typename T>
-    void registerSystem(const std::string& componentName,
-                        void (*updateFunc)(Entity, T&, float),
-                        TriggerType trigger = TriggerType::Always,
-                        float timeInterval = 0.0f, 
-                        size_t tickInterval = 0) {
-        
-        if (!gw || !gw->registerSystem || !gw->registerSystemInLoop || !gw->updateParallel)
-            throw std::runtime_error("ModuleAPI: System methods missing");
+template<typename T>
+void registerSystem(const std::string& componentName,
+                    void (*updateFunc)(Entity, T&, float),
+                    TriggerType trigger = TriggerType::Always,
+                    float timeInterval = 0.0f, 
+                    size_t tickInterval = 0) {
+    
+    struct SystemModuleContext {
+        std::string compName;
+        void (*uFunc)(Entity, T&, float);
+        FractalCORE_Gateway* gateway;
+        float currentDt; // Добавляем поле для хранения текущего dt
+    };
+    
+    auto* moduleContext = new SystemModuleContext{ componentName, updateFunc, gw, 0.0f };
+    std::string systemName = componentName + "_UpdateSystem"; 
 
-        // Context to hold function pointer and gateway access
-        struct SystemModuleContext {
-            std::string compName;
-            void (*uFunc)(Entity, T&, float);
-            FractalCORE_Gateway* gateway;
-        };
-        
-        // Note: Pointer leaked intentionally here for simplicity (lives as long as app runs)
-        auto* moduleContext = new SystemModuleContext{ componentName, updateFunc, gw };
-        std::string systemName = componentName + "_UpdateSystem"; 
-        
-        // Trampoline: Core calls this (C-style), this calls UpdateParallel (std::function)
-        auto core_trampoline = [](float dt, void* userData) {
-            auto* self = static_cast<SystemModuleContext*>(userData);
-            
-            // Create lambda for updateParallel
-            std::function<void(Entity, void*)> parallel_wrapper = 
-                [self, dt](Entity e, void* raw_data) {
-                    // Cast raw memory from ComponentData to T&
-                    T& component = *static_cast<T*>(raw_data);
-                    self->uFunc(e, component, dt);
-                };
-            
-            self->gateway->updateParallel(self->gateway->api, self->compName, parallel_wrapper, 64);
+    // Трамплин для всей системы
+    auto core_trampoline = [](float dt, void* userData) {
+        auto* ctx = static_cast<SystemModuleContext*>(userData);
+        ctx->currentDt = dt; // Сохраняем актуальный dt для этого кадра
+
+        // Колбэк для каждой сущности
+        auto entity_callback = [](Entity e, void* raw_data, void* userCtx) {
+            auto* sCtx = static_cast<SystemModuleContext*>(userCtx);
+            T& component = *static_cast<T*>(raw_data);
+            sCtx->uFunc(e, component, sCtx->currentDt); // Вызываем логику модуля
         };
 
-        // 1. Register logic
-        gw->registerSystem(gw->api, systemName, core_trampoline, static_cast<void*>(moduleContext));
+        // ВЫЗОВ С 5 АРГУМЕНТАМИ
+        ctx->gateway->updateParallel(ctx->gateway->api, ctx->compName, entity_callback, ctx, 64);
+    };
 
-        // 2. Register execution rules
-        SystemDesc desc;
-        desc.systemName = systemName;
-        desc.trigger = trigger;
-        desc.timeInterval = timeInterval;
-        desc.tickInterval = tickInterval;
-        desc.enabled = true;
-        
-        gw->registerSystemInLoop(gw->api, desc);
-    }
+    gw->registerSystem(gw->api, systemName, core_trampoline, static_cast<void*>(moduleContext));
+
+    SystemDesc desc;
+    desc.systemName = systemName;
+    desc.trigger = trigger;
+    desc.timeInterval = timeInterval;
+    desc.tickInterval = tickInterval;
+    desc.enabled = true;
+    
+    gw->registerSystemInLoop(gw->api, desc);
+}
     
     // Direct access to updateParallel
-    template<typename T>
-    void updateParallel(const std::string& componentName,
-                        void (*func)(Entity, T&),
-                        size_t chunkSize = 64) {
-        if (!gw || !gw->updateParallel) return;
-        
-        std::function<void(Entity, void*)> wrapper_func = 
-            [func](Entity e, void* data) {
-                T& component = *static_cast<T*>(data);
-                func(e, component);
-            };
-        
-        gw->updateParallel(gw->api, componentName, wrapper_func, chunkSize);
-    }
+template<typename T>
+void updateParallel(const std::string& componentName,
+                    void (*func)(Entity, T&),
+                    size_t chunkSize = 64) {
+    if (!gw || !gw->updateParallel) return;
+    
+    // Вспомогательная структура, чтобы прокинуть указатель на простую функцию
+    struct SimpleFuncCtx {
+        void (*f)(Entity, T&);
+    };
+    auto* ctx = new SimpleFuncCtx{ func };
+
+    auto wrapper_func = [](Entity e, void* data, void* userCtx) {
+        auto* sCtx = static_cast<SimpleFuncCtx*>(userCtx);
+        T& component = *static_cast<T*>(data);
+        sCtx->f(e, component);
+    };
+    
+    // Теперь здесь 5 аргументов:
+    // 1. api, 2. name, 3. callback, 4. context, 5. chunkSize
+    gw->updateParallel(gw->api, componentName, wrapper_func, ctx, chunkSize);
+}
 
     // ------------------------------------
     // 4. Events
