@@ -18,7 +18,7 @@ struct FractalCORE_Gateway {
     void (*enqueueTask)(void*, const Task&);
     void (*registerIntervalTask)(void*, const TickTask&);
 
-    // --- ECS: Entities & Components ---
+    // --- ECS: Entities and Components ---
     Entity (*createEntity)(void*);
     
     void (*registerComponent)(void*, const std::string&, size_t, size_t);
@@ -54,5 +54,17 @@ struct FractalCORE_Gateway {
     
     // Subscribe callback takes (eventID, EventData, userData)
     void (*subscribe)(void*, uint32_t, void (*)(uint32_t, const EventData&, void*), void*);
+    // --- REDIS gateway ---
+    bool (*setRedisString)(void* api, const char* key, const char* value) noexcept;
+    size_t (*getRedisString)(void* api, const char* key, char* outBuffer, size_t bufferSize) noexcept;
+    bool (*RedisExist)(void* api, const char* key) noexcept;
+    bool (*setRedisHashField)(void* api, const char* obj, const char* field, const char* value) noexcept;
+    // --- SQLite gateway ---
+    bool (*setSQLString)(void* api, const char* key, const char* value) noexcept;
+    size_t (*getSQLString)(void* api, const char* key, char* outBuffer, size_t bufferSize);
+    bool (*SQLExist)(void* api, const char* key);
+    bool (*SQLExecute)(void* api, const char* sql);
+
+
 };
 

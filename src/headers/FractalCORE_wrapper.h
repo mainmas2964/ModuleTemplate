@@ -1,6 +1,7 @@
 #pragma once
 
 #include "FractalCORE_gateway.h"
+#include <cstddef>
 #include <cstring>
 #include <iostream>
 #include <unordered_map>
@@ -148,7 +149,7 @@ public:
                 sCtx->uFunc(e, component, sCtx->currentDt);
             };
 
-            ctx->gateway->updateParallel(ctx->gateway->api, ctx->compName, entity_callback, ctx, 64);
+            ctx->gateway->updateParallel(ctx->gateway->api, ctx->compName, entity_callback, ctx, 4096);
         };
 
         m_gw->registerSystem(m_gw->api, systemName, core_trampoline, static_cast<void*>(moduleContext));
@@ -224,5 +225,61 @@ public:
         if (m_gw && m_gw->pushEvent) {
             m_gw->pushEvent(m_gw->api, getEventId(eventName), (void*)&data, sizeof(T));
         }
+    }
+    bool setRedisString(const char* key, const char* value) noexcept {
+        if (m_gw && m_gw->setRedisString){
+            return m_gw->setRedisString(m_gw->api, key, value);
+        }
+        return false;
+    }
+    std::string getRedisStringHelper(const char* key) {
+        char buffer[1024];
+        size_t len = getRedisString(key, buffer, sizeof(buffer));
+        if (len > 0) {
+            return std::string(buffer, len);
+        }
+        return "";
+    }
+    size_t getRedisString(const char* key, char* outBuffer, size_t bufferSize) noexcept {
+        if (m_gw && m_gw->getRedisString){
+            return m_gw->getRedisString(m_gw->api, key, outBuffer, bufferSize);
+        }
+        return 0;
+    }
+    bool RedisExist(const char* key) noexcept {
+        if (m_gw && m_gw->RedisExist){
+            return  m_gw->RedisExist(m_gw->api, key);
+        }
+        return false;
+    }
+    bool setRedisHashField(const char* obj, const char* field, const char* value) noexcept {
+        if (m_gw && m_gw->setRedisHashField){
+            return m_gw->setRedisHashField(m_gw->api, obj, field, value);
+        }
+        return false;
+    }
+    bool setSQLString(const char* key, const char* value) noexcept {
+        if (m_gw && m_gw->setSQLString){
+            return m_gw->setSQLString(m_gw->api, key, value);
+        }
+        return false;
+    }
+    size_t getSQLString(const char* key, char* outBuffer, size_t bufferSize) noexcept {
+        if (m_gw && m_gw->getSQLString){
+            return  m_gw->getSQLString(m_gw->api, key, outBuffer, bufferSize);
+        }
+        return 0;
+    }
+    bool SQLExist(const char* key) noexcept {
+        if (m_gw && m_gw->SQLExist) {
+            return m_gw->SQLExist(m_gw->api, key);
+        }
+        return false;
+    }
+    bool SQLExecute(const char* sql) noexcept {
+        if(m_gw && m_gw->SQLExecute) {
+            return m_gw->SQLExecute(m_gw->api, sql);
+        }
+        return false;
     }
 };

@@ -1,7 +1,9 @@
 #include "headers/FractalCORE_gateway.h"
 #include "headers/FractalCORE_wrapper.h"
 #include "headers/Structs&Classes.h"
+#include <cstddef>
 #include <iostream>
+#include <ostream>
 #include <string>
 
 // --- 1. Module-specific structures ---
@@ -50,69 +52,122 @@ void ImmediateMove(Entity e, PositionComponent& pos) {
 }
 
 // --- 3. Module entry points ---
-
 extern "C" {
-    // Called by the core when the module is loaded
+    /**
+     * @brief Module entry point called by FractalCORE when the shared library is loaded.
+     * @param gateway Pointer to the core's function table.
+     */
     void onLoad(FractalCORE_Gateway* gateway) {
-        // Use a local static ModuleAPI to ensure it lives until module unload
+        // Static instance ensures the API wrapper persists through the module lifecycle
         static ModuleAPI moduleApi(gateway);
 
-        std::cout << "--- My Module Initialized ---" << std::endl;
+        std::cout << "\n--- My Module Initialized ---" << std::endl;
 
         try {
-            // Register component type
+            // --- 1. ECS COMPONENT & SYSTEM REGISTRATION ---
+            
+            // Register a custom 2D position component
             moduleApi.registerComponent<PositionComponent>("Position");
-            std::cout << "Registered Component: Position" << std::endl;
+            std::cout << "[ECS] Registered Component: Position" << std::endl;
 
-            // Register an always-running system that iterates over "Position"
+            // Register a logic system that runs every frame for all "Position" components
             moduleApi.registerSystem<PositionComponent>(
-                "Position",            // component name
-                MovementSystemUpdate,   // update function
-                TriggerType::Always,    // trigger: every frame
-                0.0f,                   // timeInterval (unused)
-                0                       // tickInterval (unused)
+                "Position",            // Target component
+                MovementSystemUpdate,   // Function pointer to logic
+                TriggerType::Always,    // Execution frequency
+                0.0f,                   // Time interval (not used for Always)
+                0                       // Tick interval (not used for Always)
             );
-            std::cout << "Registered System: Position_UpdateSystem (Always)" << std::endl;
+            std::cout << "[ECS] Registered System: Position_UpdateSystem (Always)" << std::endl;
 
-            // Subscribe to PlayerMove events
+            // Subscribe to the "PlayerMove" event
             moduleApi.subscribe<PlayerMoveEvent>(
                 "PlayerMove",
                 OnPlayerMove,
                 &moduleApi
             );
-            std::cout << "Subscribed to Event: PlayerMove" << std::endl;
+            std::cout << "[ECS] Subscribed to Event: PlayerMove" << std::endl;
 
-            // Create 10k entities with a Position component
-            const size_t COUNT = 10000;
-            std::cout << "Creating " << COUNT << " entities..." << std::endl;
+            // --- 2. MASS ENTITY CREATION TEST ---
+            
+            const size_t COUNT = 100000;
+            std::cout << "[ECS] Attempting to create " << COUNT << " entities..." << std::endl;
             for (size_t i = 0; i < COUNT; ++i) {
                 Entity e = moduleApi.createEntity();
                 PositionComponent pc;
                 pc.x = static_cast<float>(i);
                 pc.y = 0.0f;
+                
                 moduleApi.attachComponent<PositionComponent>(e, "Position", pc);
-                if (((i + 1) % 1000) == 0) {
-                    std::cout << "Created " << (i + 1) << " entities." << std::endl;
+                
+                // Log progress every 10k entities
+                if (((i + 1) % 10000) == 0) {
+                    std::cout << "[ECS] Created " << (i + 1) << " entities." << std::endl;
                 }
             }
 
-            std::cout << "All entities created. Running 5 immediate parallel update passes..." << std::endl;
-            // Run a few immediate parallel update passes to advance positions.
+            // --- 3. PARALLEL UPDATE PASSES ---
+            
+            std::cout << "[ECS] Running 5 immediate parallel update passes..." << std::endl;
             for (int pass = 0; pass < 5; ++pass) {
+                // Bulk update Position components using multi-threading
                 moduleApi.updateParallel<PositionComponent>("Position", ImmediateMove, 256);
-                std::cout << "Completed update pass " << (pass + 1) << "/5" << std::endl;
+                std::cout << "[ECS] Completed parallel pass " << (pass + 1) << "/5" << std::endl;
             }
 
-            std::cout << "Mass creation and updates finished." << std::endl;
-
         } catch (const std::exception& e) {
-            std::cerr << "Module Initialization Error: " << e.what() << std::endl;
+            // Catch capacity errors (e.g., if MAX_ENTITIES is exceeded)
+            std::cerr << "[ECS] Initialization Error: " << e.what() << std::endl;
         }
+
+        // --- 4. PERSISTENCE & DATABASE INTEGRATION TESTS ---
+
+        std::cout << "\n--- Starting DB Integration Tests ---" << std::endl;
+
+        // A. Redis Test (In-Memory Cache)
+        const char* redisKey = "test_key";
+        const char* redisVal = "new_redis_value";
+        
+        moduleApi.setRedisString(redisKey, redisVal);
+        
+        char redisBuff[256] = {0};
+        if (moduleApi.getRedisString(redisKey, redisBuff, sizeof(redisBuff)) > 0) {
+            std::cout << "[REDIS] Read successful: " << redisBuff << std::endl;
+        }
+
+        // B. SQLite Test (Persistent Storage)
+        const char* sqlKey = "test_db_key";
+        const char* sqlVal = "122";
+        
+        // Try to read existing data first
+        char sqlBuff[256] = {0};
+        size_t sqlReadSize = moduleApi.getSQLString(sqlKey, sqlBuff, sizeof(sqlBuff));
+        
+        if (sqlReadSize > 0) {
+            std::cout << "[SQLITE] Found existing data: " << sqlBuff << std::endl;
+        } else {
+            std::cout << "[SQLITE] No data found. Writing fresh value..." << std::endl;
+        }
+
+        // Perform a write operation to the disk
+        if (moduleApi.setSQLString(sqlKey, sqlVal)) {
+            std::cout << "[SQLITE] Successfully wrote value: " << sqlVal << std::endl;
+        }
+
+        // C. Sync Test (Redis to SQLite data transfer)
+        char syncTemp[256] = {0};
+        if (moduleApi.getRedisString(redisKey, syncTemp, sizeof(syncTemp)) > 0) {
+            moduleApi.setSQLString("sync_backup", syncTemp);
+            std::cout << "[SYNC] Backed up Redis value '" << syncTemp << "' to SQLite." << std::endl;
+        }
+
+        std::cout << "--- All Tests Completed ---\n" << std::endl;
     }
 
-    // Called by the core when the module is unloaded (optional)
+    /**
+     * @brief Cleanup function called when the module is being unloaded.
+     */
     void onUnload() {
         std::cout << "--- My Module Unloaded ---" << std::endl;
-        // Free any dynamic resources here if needed (EventContexts, SystemModuleContexts)
     }
 }
