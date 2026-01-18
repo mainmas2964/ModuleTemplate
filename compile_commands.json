@@ -1,0 +1,8 @@
+[
+{
+  "directory": "C:/Users/Koman/Documents/GitHub/ModuleTemplate/build-windows-clang",
+  "command": "C:\\PROGRA~1\\LLVM\\bin\\CLANG_~1.EXE -DExampleModule_EXPORTS -IC:/Users/Koman/Documents/GitHub/ModuleTemplate -IC:/Users/Koman/Documents/GitHub/ModuleTemplate/headers -IC:/Users/Koman/Documents/GitHub/ModuleTemplate/src -O3 -DNDEBUG -D_DLL -D_MT -Xclang --dependent-lib=msvcrt -std=gnu++23 -o CMakeFiles\\ExampleModule.dir\\src\\module.cpp.obj -c C:\\Users\\Koman\\Documents\\GitHub\\ModuleTemplate\\src\\module.cpp",
+  "file": "C:/Users/Koman/Documents/GitHub/ModuleTemplate/src/module.cpp",
+  "output": "C:/Users/Koman/Documents/GitHub/ModuleTemplate/build-windows-clang/CMakeFiles/ExampleModule.dir/src/module.cpp.obj"
+}
+]

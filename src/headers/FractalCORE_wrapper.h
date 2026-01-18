@@ -1,6 +1,7 @@
 #pragma once
 
 #include "FractalCORE_gateway.h"
+#include "Structs&Classes.h"
 #include <cstddef>
 #include <cstring>
 #include <iostream>
@@ -22,7 +23,6 @@ struct EventContext {
 
 /**
  * @brief High-level C++ Wrapper for the FractalCORE Gateway API.
- * Provides a type-safe interface for ECS, Task Scheduling, and Event systems.
  */
 class ModuleAPI {
 private:
@@ -33,7 +33,7 @@ private:
         auto it = m_eventIDCache.find(name);
         if (it != m_eventIDCache.end()) return it->second;
         
-        uint32_t id = m_gw->registerEvent(m_gw->api, name);
+        uint32_t id = m_gw->registerEvent(m_gw->api, name.c_str());
         m_eventIDCache[name] = id;
         return id;
     }
@@ -46,15 +46,19 @@ public:
     // --- Core Management ---
 
     Entity createEntity() {
-        return (m_gw && m_gw->createEntity) ? m_gw->createEntity(m_gw->api) : Entity{0};
+        if (m_gw && m_gw->createEntity) {
+            uint32_t id = m_gw->createEntity(m_gw->api);
+            return Entity{id}; 
+        }
+        return Entity{0};
     }
     
     void enqueueTask(const Task& task) {
-        if (m_gw && m_gw->enqueueTask) m_gw->enqueueTask(m_gw->api, task);
+        if (m_gw && m_gw->enqueueTask) m_gw->enqueueTask(m_gw->api, (const void*)&task);
     }
     
     void registerIntervalTask(const TickTask& tickTask) {
-        if (m_gw && m_gw->registerIntervalTask) m_gw->registerIntervalTask(m_gw->api, tickTask);
+        if (m_gw && m_gw->registerIntervalTask) m_gw->registerIntervalTask(m_gw->api, (const void*)&tickTask);
     }
 
     float getDeltaTime() const {
@@ -63,7 +67,7 @@ public:
     
     Clock& getEngineClock() {
         if (!m_gw || !m_gw->getEngineClock) throw std::runtime_error("ModuleAPI: Engine Clock unavailable");
-        return m_gw->getEngineClock(m_gw->api);
+        return *static_cast<Clock*>(m_gw->getEngineClock(m_gw->api));
     }
     
     void stop() {
@@ -75,52 +79,52 @@ public:
     template<typename T>
     void registerComponent(const std::string& name, size_t capacity = 10000) {
         if (!m_gw || !m_gw->registerComponent) throw std::runtime_error("ModuleAPI: registerComponent unavailable");
-        m_gw->registerComponent(m_gw->api, name, sizeof(T), capacity);
+        m_gw->registerComponent(m_gw->api, name.c_str(), sizeof(T), capacity);
     }
     
     template<typename T>
     void attachComponent(Entity e, const std::string& name, const T& data) {
         if (!m_gw || !m_gw->attachComponent) throw std::runtime_error("ModuleAPI: attachComponent unavailable");
-        m_gw->attachComponent(m_gw->api, e, name, (void*)&data);
+        m_gw->attachComponent(m_gw->api, e.id, name.c_str(), (void*)&data);
     }
 
     void removeComponent(Entity e, const std::string& name) {
-        if (m_gw && m_gw->removeComponent) m_gw->removeComponent(m_gw->api, e, name);
+        if (m_gw && m_gw->removeComponent) 
+            m_gw->removeComponent(m_gw->api, e.id, name.c_str());
     }
 
     template<typename T>
     T* getComponent(Entity e, const std::string& name) {
         if (!m_gw || !m_gw->getComponent) return nullptr;
-        return static_cast<T*>(m_gw->getComponent(m_gw->api, e, name));
+        return static_cast<T*>(m_gw->getComponent(m_gw->api, e.id, name.c_str()));
     }
     
     bool hasComponent(Entity e, const std::string& name) {
-        return (m_gw && m_gw->hasComponent) ? m_gw->hasComponent(m_gw->api, e, name) : false;
+        return (m_gw && m_gw->hasComponent) ? 
+            m_gw->hasComponent(m_gw->api, e.id, name.c_str()) : false;
     }
 
     // --- ECS: System & Parallel Processing ---
 
-    /**
-     * @brief Processes multiple components in parallel groups.
-     */
     void updateParallelGroup(const std::vector<std::string>& componentNames,
-                             void (*updateFunc)(size_t start, size_t end, void* userCtx),
-                             void* userCtx = nullptr,
-                             size_t chunkSize = 1024) {
+                               void (*updateFunc)(size_t start, size_t end, void* userCtx),
+                               void* userCtx = nullptr,
+                               size_t chunkSize = 1024) {
         if (m_gw && m_gw->updateParallelGroup) {
-            m_gw->updateParallelGroup(m_gw->api, componentNames, updateFunc, userCtx, chunkSize);
+            std::vector<const char*> rawNames;
+            for (const auto& name : componentNames) rawNames.push_back(name.c_str());
+            m_gw->updateParallelGroup(m_gw->api, rawNames.data(), rawNames.size(), updateFunc, userCtx, chunkSize);
         }
     }
 
     void registerGroup(const std::vector<std::string>& componentNames) {
         if (m_gw && m_gw->registerGroup) {
-            m_gw->registerGroup(m_gw->api, componentNames);
+            std::vector<const char*> rawNames;
+            for (const auto& name : componentNames) rawNames.push_back(name.c_str());
+            m_gw->registerGroup(m_gw->api, rawNames.data(), rawNames.size());
         }
     }
 
-    /**
-     * @brief High-level system registration with automatic trampoline creation.
-     */
     template<typename T>
     void registerSystem(const std::string& componentName,
                         void (*updateFunc)(Entity, T&, float),
@@ -138,60 +142,48 @@ public:
         auto* moduleContext = new SystemModuleContext{ componentName, updateFunc, m_gw, 0.0f };
         std::string systemName = componentName + "_UpdateSystem"; 
 
-        // Trampoline to bridge C-style callback with typed component data
         auto core_trampoline = [](float dt, void* userData) {
             auto* ctx = static_cast<SystemModuleContext*>(userData);
             ctx->currentDt = dt; 
             
-            auto entity_callback = [](Entity e, void* raw_data, void* userCtx) {
+            auto entity_callback = [](uint32_t e_id, void* raw_data, void* userCtx) {
                 auto* sCtx = static_cast<SystemModuleContext*>(userCtx);
                 T& component = *static_cast<T*>(raw_data);
-                sCtx->uFunc(e, component, sCtx->currentDt);
+                sCtx->uFunc(Entity{e_id}, component, sCtx->currentDt);
             };
 
-            ctx->gateway->updateParallel(ctx->gateway->api, ctx->compName, entity_callback, ctx, 4096);
+            ctx->gateway->updateParallel(ctx->gateway->api, ctx->compName.c_str(), entity_callback, ctx, 4096);
         };
 
-        m_gw->registerSystem(m_gw->api, systemName, core_trampoline, static_cast<void*>(moduleContext));
+        m_gw->registerSystem(m_gw->api, systemName.c_str(), core_trampoline, static_cast<void*>(moduleContext));
 
         SystemDesc desc;
-        desc.systemName = systemName;
+        desc.systemName = systemName; 
         desc.trigger = trigger;
         desc.timeInterval = timeInterval;
         desc.tickInterval = tickInterval;
         desc.enabled = true;
         
-        m_gw->registerSystemInLoop(m_gw->api, desc);
+        m_gw->registerSystemInLoop(m_gw->api, &desc);
     }
     
-    /**
-     * @brief Direct parallel iteration over a specific component type.
-     */
     template<typename T>
-    void updateParallel(const std::string& componentName,
-                        void (*func)(Entity, T&),
-                        size_t chunkSize = 64) {
+    void updateParallel(const std::string& componentName, void (*func)(Entity, T&), size_t chunkSize = 64) {
         if (!m_gw || !m_gw->updateParallel) return;
 
-        struct SimpleFuncCtx {
-            void (*f)(Entity, T&);
-        };
-        auto* ctx = new SimpleFuncCtx{ func };
+        struct SimpleFuncCtx { void (*f)(Entity, T&); };
+        SimpleFuncCtx ctx{ func };
 
-        auto wrapper_func = [](Entity e, void* data, void* userCtx) {
+        auto wrapper_func = [](uint32_t e_id, void* data, void* userCtx) {
             auto* sCtx = static_cast<SimpleFuncCtx*>(userCtx);
-            T& component = *static_cast<T*>(data);
-            sCtx->f(e, component);
+            sCtx->f(Entity{e_id}, *static_cast<T*>(data));
         };
-        
-        m_gw->updateParallel(m_gw->api, componentName, wrapper_func, ctx, chunkSize);
+    
+        m_gw->updateParallel(m_gw->api, componentName.c_str(), wrapper_func, &ctx, chunkSize);
     }
 
     // --- Messaging & Events ---
 
-    /**
-     * @brief Subscribes to a global event with type safety.
-     */
     template<typename T>
     void subscribe(const std::string& eventName, 
                    void (*handler)(const T&, void*), 
@@ -202,10 +194,10 @@ public:
         uint32_t eventID = getEventId(eventName);
         auto* context = new EventContext<T>{ handler, userData, eventID }; 
         
-        auto core_invoker = [](uint32_t id, const EventData& data, void* contextPtr) {
+        auto core_invoker = [](uint32_t id, const void* dataPtr, void* contextPtr) {
             auto* context = static_cast<EventContext<T>*>(contextPtr);
             if (context && context->originalHandler) {
-                const T& typedData = *static_cast<const T*>(data.ptr);
+                const T& typedData = *static_cast<const T*>(dataPtr);
                 context->originalHandler(typedData, context->originalUserData);
             }
         };
@@ -226,60 +218,18 @@ public:
             m_gw->pushEvent(m_gw->api, getEventId(eventName), (void*)&data, sizeof(T));
         }
     }
-    bool setRedisString(const char* key, const char* value) noexcept {
-        if (m_gw && m_gw->setRedisString){
-            return m_gw->setRedisString(m_gw->api, key, value);
-        }
-        return false;
-    }
-    std::string getRedisStringHelper(const char* key) {
-        char buffer[1024];
-        size_t len = getRedisString(key, buffer, sizeof(buffer));
-        if (len > 0) {
-            return std::string(buffer, len);
-        }
-        return "";
-    }
-    size_t getRedisString(const char* key, char* outBuffer, size_t bufferSize) noexcept {
-        if (m_gw && m_gw->getRedisString){
-            return m_gw->getRedisString(m_gw->api, key, outBuffer, bufferSize);
-        }
-        return 0;
-    }
-    bool RedisExist(const char* key) noexcept {
-        if (m_gw && m_gw->RedisExist){
-            return  m_gw->RedisExist(m_gw->api, key);
-        }
-        return false;
-    }
-    bool setRedisHashField(const char* obj, const char* field, const char* value) noexcept {
-        if (m_gw && m_gw->setRedisHashField){
-            return m_gw->setRedisHashField(m_gw->api, obj, field, value);
-        }
-        return false;
-    }
+
+    // --- SQLite ---
     bool setSQLString(const char* key, const char* value) noexcept {
-        if (m_gw && m_gw->setSQLString){
-            return m_gw->setSQLString(m_gw->api, key, value);
-        }
-        return false;
+        return (m_gw && m_gw->setSQLString) ? m_gw->setSQLString(m_gw->api, key, value) : false;
     }
     size_t getSQLString(const char* key, char* outBuffer, size_t bufferSize) noexcept {
-        if (m_gw && m_gw->getSQLString){
-            return  m_gw->getSQLString(m_gw->api, key, outBuffer, bufferSize);
-        }
-        return 0;
+        return (m_gw && m_gw->getSQLString) ? m_gw->getSQLString(m_gw->api, key, outBuffer, bufferSize) : 0;
     }
     bool SQLExist(const char* key) noexcept {
-        if (m_gw && m_gw->SQLExist) {
-            return m_gw->SQLExist(m_gw->api, key);
-        }
-        return false;
+        return (m_gw && m_gw->SQLExist) ? m_gw->SQLExist(m_gw->api, key) : false;
     }
     bool SQLExecute(const char* sql) noexcept {
-        if(m_gw && m_gw->SQLExecute) {
-            return m_gw->SQLExecute(m_gw->api, sql);
-        }
-        return false;
+        return (m_gw && m_gw->SQLExecute) ? m_gw->SQLExecute(m_gw->api, sql) : false;
     }
 };

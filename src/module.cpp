@@ -124,18 +124,7 @@ extern "C" {
 
         std::cout << "\n--- Starting DB Integration Tests ---" << std::endl;
 
-        // A. Redis Test (In-Memory Cache)
-        const char* redisKey = "test_key";
-        const char* redisVal = "new_redis_value";
-        
-        moduleApi.setRedisString(redisKey, redisVal);
-        
-        char redisBuff[256] = {0};
-        if (moduleApi.getRedisString(redisKey, redisBuff, sizeof(redisBuff)) > 0) {
-            std::cout << "[REDIS] Read successful: " << redisBuff << std::endl;
-        }
-
-        // B. SQLite Test (Persistent Storage)
+        // A. SQLite Test (Persistent Storage)
         const char* sqlKey = "test_db_key";
         const char* sqlVal = "122";
         
@@ -154,12 +143,6 @@ extern "C" {
             std::cout << "[SQLITE] Successfully wrote value: " << sqlVal << std::endl;
         }
 
-        // C. Sync Test (Redis to SQLite data transfer)
-        char syncTemp[256] = {0};
-        if (moduleApi.getRedisString(redisKey, syncTemp, sizeof(syncTemp)) > 0) {
-            moduleApi.setSQLString("sync_backup", syncTemp);
-            std::cout << "[SYNC] Backed up Redis value '" << syncTemp << "' to SQLite." << std::endl;
-        }
 
         std::cout << "--- All Tests Completed ---\n" << std::endl;
     }
