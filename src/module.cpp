@@ -1,10 +1,9 @@
 #include "headers/FractalSDK.h"
 #include "headers/hash/hash.h"
-#include "headers/IKernel.h" // Обязательно подключаем интерфейс
+#include "headers/IKernel.h"
 #include <iostream>
 #include <iterator>
 
-// Экспортируем функции
 #ifdef _WIN32
     #define FRACTAL_EXPORT extern "C" __declspec(dllexport)
 #else
@@ -18,7 +17,6 @@ struct exampleComponent {
     float c = 0;
 };
 
-// ТЕПЕРЬ: Принимаем IKernel* вместо KernelAPI
 FRACTAL_EXPORT void ModuleMain(IKernel* kernel) {
 
     FractalSDK::SDK::Initialize(kernel);
@@ -40,7 +38,6 @@ FRACTAL_EXPORT void ModuleMain(IKernel* kernel) {
     if (getComp == nullptr) {
         std::cout << "Error: getComponent returned nullptr!" << std::endl;
     } else {
-        // Если здесь падает Bus error - значит адрес в getComp не кратен 4 (размер float)
         std::cout << getComp->x << " " << getComp->y << " " << getComp->z << std::endl; 
     }
 
