@@ -1,6 +1,9 @@
 #include "headers/FractalSDK.h"
 #include "headers/hash/hash.h"
 #include "headers/IKernel.h"
+#include "headers/ECS.h"
+#include <cstdint>
+#include <cstdio>
 #include <iostream>
 #include <iterator>
 
@@ -18,29 +21,28 @@ struct exampleComponent {
 };
 
 FRACTAL_EXPORT void ModuleMain(IKernel* kernel) {
-
+    uint32_t compHash = fnv1aHashConst("exampleComponent");
     FractalSDK::SDK::Initialize(kernel);
     
-    uint32_t compHash = fnv1aHashConst("exampleComponent");
-    exampleComponent comp= exampleComponent{ 1.0f, 5.0f, 20.0f}; 
-    
-    FractalSDK::ECS::registerComponent<exampleComponent>(compHash, 10);
-    FractalSDK::ECS::attachComponentDeferred(Entity{1}, fnv1aHashConst("exampleComponent") , &comp );
-    std::cout << "done." << std::endl;
-    FractalSDK::ECS::flushCommands(0);
-    std::cout << "flush done." << std::endl;
+    ECS cooldomain("new_cool_domain");
 
-    exampleComponent* getComp = FractalSDK::ECS::getComponent<exampleComponent>(Entity{1}, compHash);
-    if (FractalSDK::ECS::hasComponent<exampleComponent>( {1}, fnv1aHashConst("exampleComponent"))){
-        std::cout << "Has" << std::endl;
-    };
+    exampleComponent comp = { 1.0f, 5.0f, 20.0f, 0.0f }; 
+    cooldomain.registerComponent<exampleComponent>(compHash, 10000);
     
-    if (getComp == nullptr) {
-        std::cout << "Error: getComponent returned nullptr!" << std::endl;
-    } else {
-        std::cout << getComp->x << " " << getComp->y << " " << getComp->z << std::endl; 
+    for (uint32_t i = 0; i < 1000; i++) {
+        cooldomain.attachComponentDeferred<exampleComponent>({i}, compHash, &comp);
+    }
+    
+    cooldomain.flushCommands();
+
+    void* data = cooldomain.getRawPtr(compHash);
+
+    exampleComponent* componentdata = (exampleComponent*)data;
+    for (uint32_t i = 0; i < 10; i++){
+            componentdata[i].x += 0.005f;
+        std::cout << componentdata[i].x << std::endl;
     }
 
 
-    std::cout << "Hello, World! (hello from module via IKernel :3)" << std::endl;
+    std::cout << "Module logic finished :3" << std::endl;
 }

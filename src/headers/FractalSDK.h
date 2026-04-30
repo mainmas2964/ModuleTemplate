@@ -1,3 +1,4 @@
+#pragma once
 #include "hash/hash.h"
 #include <cstdint>
 #include <initializer_list>
@@ -315,11 +316,9 @@ private:
 };
 
 // FractalSDK
+
 namespace FractalSDK {
-namespace WorkScheduler{
-    void scheduleTask(w_task_fn fn, void* context, uint32_t domainId = 0);
-    void registerDomain(uint32_t domainId);
-};
+
 class SDK {
 public:
     SDK(const SDK&) = delete;
@@ -345,24 +344,16 @@ public:
     static SDK* Get() { return instance; }
 
     void sendPacket(FURCMDPacket& packet) {
-        if (!instance) {
-            std::cerr << "[SDK Error] Instance is NULL! Call Initialize first." << std::endl;
+        if (!instance || !m_kernel) {
             return; 
         }
-        if (!m_kernel) {
-            std::cerr << "[SDK Error] IKernel pointer is NULL!" << std::endl;
-            return;
-        }
-
         m_kernel->sendCMDPacket(packet);
     }
 
     void registerMethod(uint32_t hash, FURMethod method) {
-        if (!m_kernel) {
-            std::cerr << "[SDK Error] IKernel pointer is NULL!" << std::endl;
-            return;
+        if (m_kernel) {
+            m_kernel->registerCMDMethod(hash, method);
         }
-        m_kernel->registerCMDMethod(hash, method);
     }
 
 private:
@@ -373,422 +364,30 @@ private:
     ~SDK() = default;
 
     std::unique_ptr<TicketPool> m_ticketPool;
-    
     IKernel* m_kernel; 
-    
     static inline SDK* instance = nullptr;
 };
 
-
-namespace ECS {
-    struct GetComponentTask {
-        getComponentCMDContext context;
-        Ticket* ticket;
-        void** targetBuffer;
-    };
-    struct hasComponentTask {
-        hasComponentCMDContext context;
-        Ticket* ticket;
-        void* targetBuffer;
-    };
-    struct containsTask {
-        containsCMDContext context;
-        Ticket* ticket;
-        void* targetBuffer;
-        std::vector<uint32_t> hashes;
-    };
-    struct getGroupSizeTask {
-        getGroupSizeCMDContext context;
-        Ticket* ticket;
-        void* targetBuffer;
-        std::vector<uint32_t> hashes;
-    };
-    struct getRawPtrTask {
-        getRawPtrCMDContext context;
-        Ticket* ticket;
-        void* targetBuffer;
-    };
-    template<typename T>
-    void registerComponent(uint32_t hashId, uint32_t capacity, uint32_t domainId = 0){
-        registerComponentCMDContext context;
-        context.domainId = domainId;
-        context.componentId = hashId;
-        context.componentSize = sizeof(T);
-        context.capacity = capacity;
-
-        FURCMDPacket packet;
-        packet.methodHash = registerComponentHash;
-        packet.payloadSize = sizeof(context);
-        packet.payload = &context;
-        SDK::Get()->sendPacket(packet);
-    }
-    template<typename T> 
-    void attachComponentDeferred(Entity entity, uint32_t componentHashId, T* componentData, uint32_t domainId = 0){
-        attachComponentDeferredCMDContext context;
-        context.domainId = domainId;
-        context.entity = entity;
-        context.componentId = componentHashId;
-        context.componentData = componentData;
-        context.dataSize = sizeof(T);
-
-        FURCMDPacket packet;
-        packet.methodHash = attachComponentDeferredHash;
-        packet.payloadSize = sizeof(context);
-        packet.payload = &context;
-
-        SDK::Get()->sendPacket(packet);
-    }
-    template<typename T>
-    void removeComponentDeferred(Entity entity, uint32_t componentHashId, uint32_t domainId = 0){
-        removeComponentDeferredCMDContext context;
-        context.domainId = domainId;
-        context.entity = entity;
-        context.componentId = componentHashId;
-
-        FURCMDPacket packet;
-        packet.methodHash = removeComponentDeferredHash;
-        packet.payloadSize = sizeof(context);
-        packet.payload = &context;
-
-        SDK::Get()->sendPacket(packet);
-    }
-    template<typename T>
-    T* getComponent(Entity entity, uint32_t componentHashId, uint32_t domainId = 0){
-        getComponentCMDContext context;
-        context.domainId = domainId;
-        context.entity = entity;
-        context.componentId = componentHashId;
-        void* output = nullptr;
-        
-        FURCMDPacket packet;
-        packet.methodHash = getComponentHash;
-        packet.payloadSize = sizeof(context);
-        packet.payload = &context;
-        packet.outputBuffer = &output;
-        SDK::Get()->sendPacket(packet);
-        return static_cast<T*>(output);
-    }
-    template<typename T>
-    Ticket* getComponentAsync(Entity entity, uint32_t componentHashId, void* outputBuffer, uint32_t domainId = 0) {
-        Ticket* ticket = SDK::Get()->allocateTicket();
-        auto* taskCtx = new GetComponentTask(); 
-        taskCtx->context.entity = entity;
-        taskCtx->context.componentId = componentHashId;
-        taskCtx->context.domainId = domainId;
-        taskCtx->ticket = ticket;
-        taskCtx->targetBuffer = static_cast<void**>(outputBuffer);
-
-        auto fn = [](void* ctx) {
-            auto* data = static_cast<GetComponentTask*>(ctx);
-        
-            FURCMDPacket packet;
-            packet.methodHash = getComponentHash;
-            packet.payload = &data->context;
-            packet.payloadSize = sizeof(getComponentCMDContext);
-            packet.outputBuffer = data->targetBuffer;
-        
-            SDK::Get()->sendPacket(packet);
-
-            if (data->ticket) data->ticket->fence.store(1, std::memory_order_release);
-        
-            delete data;
-        };
-        WorkScheduler::scheduleTask(fn, taskCtx, 0);
-        return ticket;
-    }
-    template<typename T>
-    bool hasComponent(Entity entity, uint32_t componentHashId, uint32_t domainId = 0){
-        hasComponentCMDContext context;
-        context.domainId = domainId;
-        context.entity = entity;
-        context.componentId = componentHashId;
-        bool exists = false;
-        FURCMDPacket packet;
-        packet.methodHash = hasComponentHash;
-        packet.payloadSize = sizeof(context);
-        packet.payload = &context;
-        packet.outputBuffer = &exists;
-        SDK::Get()->sendPacket(packet);
-        return exists;
-    }
-    template<typename T>
-    Ticket* hasComponentAsync(Entity entity, uint32_t componentHashId, void* outputBuffer, uint32_t domainId = 0) {
-        Ticket* ticket = SDK::Get()->allocateTicket();
-        auto* taskCtx = new hasComponentTask(); 
-        taskCtx->context.entity = entity;
-        taskCtx->context.componentId = componentHashId;
-        taskCtx->context.domainId = domainId;
-        taskCtx->ticket = ticket;
-        taskCtx->targetBuffer = outputBuffer;
-
-        auto fn = [](void* ctx) {
-            auto* data = static_cast<hasComponentTask*>(ctx);
-        
-            FURCMDPacket packet;
-            packet.methodHash = hasComponentHash;
-            packet.payload = &data->context;
-            packet.payloadSize = sizeof(hasComponentCMDContext);
-            packet.outputBuffer = data->targetBuffer;
-        
-            SDK::Get()->sendPacket(packet);
-
-            if (data->ticket) data->ticket->fence.store(1, std::memory_order_release);
-        
-            delete data;
-        };
-        WorkScheduler::scheduleTask(fn, taskCtx, 0);
-        return ticket;
-    }
-    void registerGroup(std::initializer_list<uint32_t> hashes, uint32_t domainId = 0){
-        registerGroupCMDContext context;
-        context.componentHashIds = const_cast<uint32_t*>(hashes.begin());
-        context.count = hashes.size();
-        context.domainId = domainId;
-        FURCMDPacket packet;
-        packet.methodHash = registerGroupHash;
-        packet.payload = &context;
-        packet.payloadSize = sizeof(context);
-        SDK::Get()->sendPacket(packet);
-    }
-    void flushCommands(uint32_t domainId = 0){
-        flushCommandsCMDContext context;
-        context.domainId = domainId;
-        FURCMDPacket packet;
-        packet.payload = &context;
-        packet.payloadSize = sizeof(context);
-        packet.methodHash = flushCommandsHash;
-        SDK::Get()->sendPacket(packet);
-    }
-    bool contains(std::initializer_list<uint32_t> array, uint32_t value,uint32_t domainId = 0) {
-        containsCMDContext context;
-        context.domainId = domainId;
-        context.componentHashIds = const_cast<uint32_t*>(array.begin());
-        context.value = value;
-        context.count = array.size();
-        bool contains = false;
-        FURCMDPacket packet;
-        packet.methodHash = containsHash;
-        packet.outputBuffer = &contains;
-        packet.payload = &context;
-        packet.payloadSize = sizeof(context);
-        return contains;
-    }
-    Ticket* containsAsync(std::vector<uint32_t> array, uint32_t value , void* outputBuffer = nullptr, uint32_t domainId = 0){
-        Ticket* ticket = SDK::Get()->allocateTicket();
-        auto* taskCtx = new containsTask();
-        taskCtx->hashes = std::move(array);
-        taskCtx->context.componentHashIds = taskCtx->hashes.data();
-        taskCtx->context.count = taskCtx->hashes.size();
-        taskCtx->context.domainId = domainId;
-        taskCtx->context.value = value;
-        taskCtx->targetBuffer = outputBuffer;
-        taskCtx->ticket = ticket;
-
-        auto fn = [](void* ctx){
-            auto data = static_cast<containsTask*>(ctx);
-            FURCMDPacket packet;
-            packet.methodHash = containsHash;
-            packet.payload = &data->context;
-            packet.payloadSize = sizeof(containsCMDContext);
-            packet.outputBuffer = data->targetBuffer;
-
-            SDK::Get()->sendPacket(packet);
-
-            if (data->ticket) data->ticket->fence.store(1, std::memory_order_release);
-
-            delete data;
-
-        };
-
-        WorkScheduler::scheduleTask(fn, taskCtx, 0);
-        return ticket;
-    }
-    uint32_t getGroupSize(std::initializer_list<uint32_t> hashes, uint32_t domainId) {
-        getGroupSizeCMDContext context;
-        context.componentHashIds = const_cast<uint32_t*>(hashes.begin());
-        context.count = hashes.size();
-        context.domainId = domainId;
-        uint32_t size = 0;
-        FURCMDPacket packet;
-        packet.methodHash = getGroupSizeHash;
-        packet.payload = &context;
-        packet.payloadSize = sizeof(getGroupSizeCMDContext);
-        packet.outputBuffer = &size;
-        SDK::Get()->sendPacket(packet);
-        return size;
-    }
-    Ticket* getGroupSizeAsync(std::vector<uint32_t> hashes, void* outputBuffer = nullptr, uint32_t domainId = 0) {
-        Ticket* ticket = SDK::Get()->allocateTicket();
-        auto* taskCtx = new getGroupSizeTask();
-
-        taskCtx->hashes = std::move(hashes);
-
-        taskCtx->context.componentHashIds = taskCtx->hashes.data();
-        taskCtx->context.count = static_cast<uint32_t>(taskCtx->hashes.size());
-        taskCtx->context.domainId = domainId;
-
-        taskCtx->targetBuffer = outputBuffer;
-        taskCtx->ticket = ticket;
-
-        auto fn = [](void* ctx) {
-            auto data = static_cast<getGroupSizeTask*>(ctx);
-            FURCMDPacket packet;
-            packet.methodHash = getGroupSizeHash;
-            packet.payload = &data->context;
-            packet.payloadSize = sizeof(getGroupSizeCMDContext);
-            packet.outputBuffer = data->targetBuffer;
-
-            SDK::Get()->sendPacket(packet);
-
-            if (data->ticket) {
-                data->ticket->fence.store(1, std::memory_order_release);
-            }
-            delete data;
-        };
-
-        WorkScheduler::scheduleTask(fn, taskCtx);
-
-        return ticket; 
-    }
-    void* getRawPtr(uint32_t componentId, uint32_t domainId = 0) {
-        getRawPtrCMDContext context;
-        context.componentId = componentId;
-        context.domainId = domainId;
-        void* rawPtr = nullptr;
-        FURCMDPacket packet;
-        packet.methodHash = getRawPtrHash;
-        packet.payload = &context;
-        packet.payloadSize = sizeof(getRawPtrCMDContext);
-        packet.outputBuffer = &rawPtr;
-        SDK::Get()->sendPacket(packet);
-        return rawPtr;
-    }
-    Ticket* getRawPtrAsync( uint32_t componentId, void* outputBuffer = nullptr,uint32_t domainId = 0) {
-        Ticket* ticket = SDK::Get()->allocateTicket();
-        auto* taskCtx = new getRawPtrTask();
-        taskCtx->ticket = ticket;
-        taskCtx->context.componentId = componentId;
-        taskCtx->context.domainId = domainId;
-        taskCtx->targetBuffer = outputBuffer;
-        auto fn = [](void* ctx){
-            auto data = static_cast<getRawPtrTask*>(ctx);
-            FURCMDPacket packet;
-            packet.methodHash = getRawPtrHash;
-            packet.payload = &data->context;
-            packet.payloadSize = sizeof(getRawPtrCMDContext);
-            packet.outputBuffer = data->targetBuffer;
-            SDK::Get()->sendPacket(packet);
-            if (data->ticket) data->ticket->fence.store(1, std::memory_order_release);
-
-            delete data;
-        };
-        WorkScheduler::scheduleTask(fn, taskCtx);
-        return ticket;
-    }
-
-}
-
-namespace Event {
-    void registerEventBus(uint32_t eventBusId){
-        FURCMDPacket packet;
-        packet.methodHash = registerEBHash;
-        packet.payload = &eventBusId;
-        packet.payloadSize = sizeof(uint32_t);
-        SDK::Get()->sendPacket(packet);
-    }
-    void subscribe(uint32_t eventId, EventCallback callback, void* user = nullptr, uint32_t subscriberId = 0, uint32_t domainId = 0){
-        subscribeEventCMDContext context;
-        context.eventId = eventId;
-        context.subscriberId = subscriberId;
-        context.cb = callback;
-        context.domainId = domainId;
-        context.user = user;
-        FURCMDPacket packet;
-        packet.methodHash = subscribeEventHash;
-        packet.payload = &context;
-        packet.payloadSize = sizeof(subscribeEventCMDContext);
-        SDK::Get()->sendPacket(packet);
-    }
-    void emitEvent(uint32_t eventId, const EventData& data, uint32_t domainId = 0){
-        emitEventCMDContext context;
-        context.data = data;
-        context.eventId = eventId;
-        context.domainId = domainId;
-        FURCMDPacket packet;
-        packet.methodHash = emitEventHash;
-        packet.payload = &context;
-        packet.payloadSize = sizeof(emitEventCMDContext);
-        SDK::Get()->sendPacket(packet);
-    }
-    void pushEvent(uint32_t eventId, const EventData& data, uint32_t domainId = 0) {
-        pushEventCMDContext context;
-        context.data = data;
-        context.eventId = eventId;
-        context.domainId = domainId;
-        FURCMDPacket packet;
-        packet.methodHash = pushEventHash;
-        packet.payload = &context;
-        packet.payloadSize = sizeof(pushEventCMDContext);
-        SDK::Get()->sendPacket(packet);
-    }
-    void processEvents(uint32_t domainId) {
-        processEventsCMDContext context;
-        context.domainId = domainId;
-        FURCMDPacket packet;
-        packet.methodHash = processEventsHash;
-        packet.payload = &context;
-        packet.payloadSize = sizeof(processEventsCMDContext);
-        SDK::Get()->sendPacket(packet);
-    }
-    void unsubscribe(uint32_t subscriberId, uint32_t domainId) {
-        unsubscribeEventCMDContext context;
-        context.domainId = domainId;
-        context.subscriberId = subscriberId;
-        FURCMDPacket packet;
-        packet.methodHash = unsubscribeEventHash;
-        packet.payload = &context;
-        packet.payloadSize = sizeof(unsubscribeEventCMDContext);
-        SDK::Get()->sendPacket(packet);
-    }
-    void reset(uint32_t domainId) {
-        resetEventsCMDContext context;
-        context.domainId = domainId;
-        FURCMDPacket packet;
-        packet.methodHash = resetEventsHash;
-        packet.payload = &context;
-        packet.payloadSize = sizeof(resetEventsCMDContext);
-    }
-}
-namespace SQLDB {
-    void registerSQLDomain(){}
-}
 namespace WorkScheduler {
-    void scheduleTask(w_task_fn fn, void* context, uint32_t domainId){
+
+    inline void scheduleTask(w_task_fn fn, void* context, uint32_t domainId = 0) {
         ComputeTask task;
         task.fn = fn;
         task.context = context;
 
-        FURCMDPacket packet;
-        packet.methodHash = scheduleTaskHash;
-        packet.payloadSize = sizeof(task) + sizeof(domainId);
-        std::vector<uint8_t> payload(packet.payloadSize);
+        uint32_t payloadSize = sizeof(task) + sizeof(domainId);
+        std::vector<uint8_t> payload(payloadSize);
         memcpy(payload.data(), &domainId, sizeof(domainId));
         memcpy(payload.data() + sizeof(domainId), &task, sizeof(task));
+
+        FURCMDPacket packet;
+        packet.methodHash = scheduleTaskHash;
+        packet.payloadSize = payloadSize;
         packet.payload = payload.data();
 
         SDK::Get()->sendPacket(packet);
     }
-    void registerDomain(uint32_t domainId){
-        FURCMDPacket packet;
-        packet.methodHash = registerWSDomainHash;
-        packet.payloadSize = sizeof(domainId);
-        packet.payload = &domainId;
-
-        SDK::Get()->sendPacket(packet);
-    }
-
-
-//
 }
-//
+
+
 }
